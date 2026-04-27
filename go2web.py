@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from http_client import fetch
+
 
 HELP_TEXT = """go2web - HTTP over TCP sockets
 
@@ -24,7 +26,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_url(url: str) -> int:
-    print(f"[not implemented yet] would fetch: {url}")
+    try:
+        response = fetch(url)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"HTTP/{response.status} {response.reason}")
+    for key, value in response.headers:
+        print(f"{key}: {value}")
+    print()
+    sys.stdout.write(response.text())
+    if not response.text().endswith("\n"):
+        sys.stdout.write("\n")
     return 0
 
 
