@@ -178,7 +178,22 @@ def _decode_chunked(body: bytes) -> bytes:
     return bytes(out)
 
 
-def fetch(url: str, *, headers: dict[str, str] | None = None, timeout: float = DEFAULT_TIMEOUT) -> HttpResponse:
+def _resolve_redirect(current: str, location: str) -> str:
+    if "://" in location:
+        return location
+    base = parse_url(current)
+    if location.startswith("//"):
+        return f"{base.scheme}:{location}"
+    if location.startswith("/"):
+        port = "" if base.port in (80, 443) else f":{base.port}"
+        return f"{base.scheme}://{base.host}{port}{location}"
+    # relative path — drop the last segment of the base path
+    base_dir = base.path.rsplit("/", 1)[0] + "/"
+    port = "" if base.port in (80, 443) else f":{base.port}"
+    return f"{base.scheme}://{base.host}{port}{base_dir}{location}"
+
+
+def _fetch_once(url: str, headers: dict[str, str] | None, timeout: float) -> HttpResponse:
     target = parse_url(url)
     request = _build_request(target, headers or {})
 
@@ -213,3 +228,29 @@ def fetch(url: str, *, headers: dict[str, str] | None = None, timeout: float = D
         body = body[:content_length]
 
     return HttpResponse(status=status, reason=reason, headers=hdrs, body=body, url=url)
+
+
+def fetch(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    max_redirects: int = 5,
+) -> HttpResponse:
+    seen: set[str] = set()
+    current = url
+    for _ in range(max_redirects + 1):
+        if current in seen:
+            raise ValueError(f"redirect loop detected at {current}")
+        seen.add(current)
+
+        response = _fetch_once(current, headers, timeout)
+        if response.status in (301, 302, 303, 307, 308):
+            location = response.header("Location")
+            if not location:
+                return response
+            current = _resolve_redirect(current, location.strip())
+            continue
+        return response
+
+    raise ValueError(f"too many redirects (>{max_redirects})")

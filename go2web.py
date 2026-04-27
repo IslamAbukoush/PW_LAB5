@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from html_render import html_to_text
 from http_client import fetch
 
 
@@ -32,12 +33,16 @@ def cmd_url(url: str) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    print(f"HTTP/{response.status} {response.reason}")
-    for key, value in response.headers:
-        print(f"{key}: {value}")
-    print()
-    sys.stdout.write(response.text())
-    if not response.text().endswith("\n"):
+    if response.url != url:
+        print(f"(redirected to {response.url})", file=sys.stderr)
+    print(f"HTTP/{response.status} {response.reason}", file=sys.stderr)
+
+    mime, _ = response.content_type()
+    text = response.text()
+    rendered = html_to_text(text) if mime in ("text/html", "application/xhtml+xml") else text
+
+    sys.stdout.write(rendered)
+    if not rendered.endswith("\n"):
         sys.stdout.write("\n")
     return 0
 
@@ -48,6 +53,11 @@ def cmd_search(terms: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
