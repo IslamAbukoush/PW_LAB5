@@ -236,7 +236,10 @@ def fetch(
     headers: dict[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     max_redirects: int = 5,
+    use_cache: bool = True,
 ) -> HttpResponse:
+    import cache  # lazy: cache imports HttpResponse from this module
+
     seen: set[str] = set()
     current = url
     for _ in range(max_redirects + 1):
@@ -244,7 +247,20 @@ def fetch(
             raise ValueError(f"redirect loop detected at {current}")
         seen.add(current)
 
-        response = _fetch_once(current, headers, timeout)
+        cached = cache.load(current) if use_cache else None
+        if cached and cached.is_fresh():
+            response = cached.response
+            response.reason = response.reason + " (cache hit)"
+        else:
+            request_headers = dict(headers or {})
+            if cached:
+                request_headers.update(cached.validators())
+            response = _fetch_once(current, request_headers, timeout)
+            if response.status == 304 and cached:
+                response = cache.refresh_after_304(cached, response.headers)
+            elif use_cache:
+                cache.store(response)
+
         if response.status in (301, 302, 303, 307, 308):
             location = response.header("Location")
             if not location:

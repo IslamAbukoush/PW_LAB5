@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.go2web-cache/
+guide.md
